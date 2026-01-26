@@ -1,31 +1,39 @@
 package finalProject;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-
 public class SimulationEngine {
+
+    private static final Logger logger = LoggerFactory.getLogger(SimulationEngine.class);
+    private static final Logger metricsLogger = LoggerFactory.getLogger("metrics");
 
     private final SimulationConfig config;
     private final PriorityBlockingQueue<RideRequest> waitingQueue;
     private final PriorityBlockingQueue<ActiveRide> activeRequests;
     private final BlockingQueue<Driver> availableDrivers;
     private final AtomicBoolean generatorDone = new AtomicBoolean(false);
+
     private final AtomicInteger createdCount = new AtomicInteger(0);
     private final AtomicInteger dispatchedCount = new AtomicInteger(0);
     private final AtomicInteger completedCount = new AtomicInteger(0);
+
     private long totalWaitTimeSeconds = 0;
     private long totalRideDurationSeconds = 0;
     private long maxWaitTimeSeconds = 0;
     private long minWaitTimeSeconds = Long.MAX_VALUE;
 
-    // 🔧 新增：防止重复打印等待信息
     private final java.util.Set<String> waitingNotified = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     private final ExecutorService executor = Executors.newFixedThreadPool(3);
     private final AtomicBoolean running = new AtomicBoolean(true);
+
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     public SimulationEngine(SimulationConfig config) {
@@ -48,13 +56,11 @@ public class SimulationEngine {
     }
 
     public void start() {
-        System.out.println("=".repeat(70));
-        System.out.println("[ENGINE] Simulation started at " + LocalDateTime.now().format(TIME_FORMATTER));
-        System.out.println("[CONFIG] Drivers=" + config.driverCount
-                + ", Max Requests=" + config.maxRequests
-                + ", Interval=" + config.requestIntervalMs + "ms");
-        System.out.println("=".repeat(70));
-        System.out.println();
+        logger.info("=".repeat(70));
+        logger.info("Simulation started at {}", LocalDateTime.now().format(TIME_FORMATTER));
+        logger.info("Config: Drivers={}, Max Requests={}, Interval={}ms",
+                config.driverCount, config.maxRequests, config.requestIntervalMs);
+        logger.info("=".repeat(70));
 
         executor.submit(this::requestGeneratorLoop);
         executor.submit(this::dispatchLoop);
@@ -66,42 +72,43 @@ public class SimulationEngine {
             return;
         }
 
-        System.out.println("\n" + "=".repeat(70));
-        System.out.println("=== Simulation Summary ===");
-        System.out.println("Created:    " + createdCount.get());
-        System.out.println("Dispatched: " + dispatchedCount.get());
-        System.out.println("Completed:  " + completedCount.get());
+        logger.info("\n" + "=".repeat(70));
+        logger.info("=== Simulation Summary ===");
+        logger.info("Created:    {}", createdCount.get());
+        logger.info("Dispatched: {}", dispatchedCount.get());
+        logger.info("Completed:  {}", completedCount.get());
 
         if (createdCount.get() == dispatchedCount.get()
                 && dispatchedCount.get() == completedCount.get()) {
-            System.out.println("✓ OK: All requests processed");
+            logger.info("✓ OK: All requests processed");
         } else {
-            System.out.println("✗ ERROR: Count mismatch detected!");
+            logger.error("✗ ERROR: Count mismatch detected!");
         }
 
-        // 🔧 新增：显示统计数据
-        System.out.println();
-        System.out.println("=== Performance Metrics ===");
+        logger.info("");
+        logger.info("=== Performance Metrics ===");
         if (completedCount.get() > 0) {
             double avgWait = totalWaitTimeSeconds / (double) completedCount.get();
             double avgRide = totalRideDurationSeconds / (double) completedCount.get();
             long minWait = (minWaitTimeSeconds == Long.MAX_VALUE) ? 0 : minWaitTimeSeconds;
 
-            System.out.println("Average wait time:      " + String.format("%.2f", avgWait) + " seconds");
-            System.out.println("Max wait time:          " + maxWaitTimeSeconds + " seconds");
-            System.out.println("Min wait time:          " + minWait + " seconds");
-            System.out.println("Average ride duration:  " + String.format("%.2f", avgRide) + " seconds");
+            logger.info("Average wait time:      {} seconds", String.format("%.2f", avgWait));
+            logger.info("Max wait time:          {} seconds", maxWaitTimeSeconds);
+            logger.info("Min wait time:          {} seconds", minWait);
+            logger.info("Average ride duration:  {} seconds", String.format("%.2f", avgRide));
+
+            metricsLogger.info("Simulation Summary: Created={}, Dispatched={}, Completed={}",
+                    createdCount.get(), dispatchedCount.get(), completedCount.get());
+            metricsLogger.info("Avg Wait: {}s, Max Wait: {}s, Min Wait: {}s, Avg Ride: {}s",
+                    String.format("%.2f", avgWait), maxWaitTimeSeconds, minWait, String.format("%.2f", avgRide));
         } else {
-            System.out.println("No completed rides to analyze");
+            logger.warn("No completed rides to analyze");
         }
-        System.out.println("=".repeat(70));
+        logger.info("=".repeat(70));
 
         executor.shutdownNow();
     }
 
-    // ========================
-    // Thread 1: 生成订单
-    // ========================
     private void requestGeneratorLoop() {
         while (running.get() && createdCount.get() < config.maxRequests) {
             try {
@@ -110,13 +117,13 @@ public class SimulationEngine {
 
                 int count = createdCount.incrementAndGet();
 
-                // 🔧 新增：显示详细时间信息
-                System.out.println("[CREATED #" + count + "] at " + request.getRequestTimestamp().format(TIME_FORMATTER));
-                System.out.println("  Customer: " + request.getCustomerId());
-                System.out.println("  Type: " + request.getRideType());
-                System.out.println("  Route: " + request.getStartLocation() + " → " + request.getDestination());
-                System.out.println("  Distance: " + request.getAnticipatedDistance() + " units");
-                System.out.println();
+                if (ConfigLoader.isDetailedLoggingEnabled()) {
+                    logger.info("[CREATED #{}] at {}", count, request.getRequestTimestamp().format(TIME_FORMATTER));
+                    logger.debug("  Customer: {}", request.getCustomerId());
+                    logger.debug("  Type: {}", request.getRideType());
+                    logger.debug("  Route: {} → {}", request.getStartLocation(), request.getDestination());
+                    logger.debug("  Distance: {} units", request.getAnticipatedDistance());
+                }
 
                 Thread.sleep(config.requestIntervalMs);
             } catch (InterruptedException e) {
@@ -126,14 +133,10 @@ public class SimulationEngine {
         }
 
         generatorDone.set(true);
-        System.out.println("[GENERATOR] Finished creating " + createdCount.get() + " requests at "
-                + LocalDateTime.now().format(TIME_FORMATTER));
-        System.out.println();
+        logger.info("[GENERATOR] Finished creating {} requests at {}",
+                createdCount.get(), LocalDateTime.now().format(TIME_FORMATTER));
     }
 
-    // ========================
-    // Thread 2: 派单
-    // ========================
     private void dispatchLoop() {
         while (running.get() || !generatorDone.get() || !waitingQueue.isEmpty()) {
             try {
@@ -145,24 +148,21 @@ public class SimulationEngine {
 
                 Driver driver = availableDrivers.poll();
                 if (driver == null) {
-                    // 🔧 修复：只在第一次进入等待队列时打印
                     String requestId = request.getCustomerId() + "-" + request.getRequestTimestamp();
                     if (!waitingNotified.contains(requestId)) {
                         waitingNotified.add(requestId);
-                        int queueSize = waitingQueue.size() + 1; // +1 因为当前request还没放回
-                        System.out.println("[WAITING] Customer " + request.getCustomerId()
-                                + " is in the waiting queue (Position: " + queueSize + " in queue)");
-                        System.out.println("  Reason: No available drivers");
-                        System.out.println("  Request type: " + request.getRideType());
-                        System.out.println();
+                        int queueSize = waitingQueue.size() + 1;
+                        logger.warn("[WAITING] Customer {} is in the waiting queue (Position: {} in queue)",
+                                request.getCustomerId(), queueSize);
+                        logger.debug("  Reason: No available drivers");
+                        logger.debug("  Request type: {}", request.getRideType());
                     }
 
                     waitingQueue.put(request);
-                    Thread.sleep(200); // 🔧 增加等待时间，减少CPU占用
+                    Thread.sleep(200);
                     continue;
                 }
 
-                // 🔧 派发时从通知集合中移除
                 String requestId = request.getCustomerId() + "-" + request.getRequestTimestamp();
                 waitingNotified.remove(requestId);
 
@@ -177,40 +177,35 @@ public class SimulationEngine {
 
                 int count = dispatchedCount.incrementAndGet();
 
-                // 显示详细时间信息
-                System.out.println("[DISPATCHED #" + count + "] at " + actualStart.format(TIME_FORMATTER));
-                System.out.println("  Driver: " + driver.getDriverId());
-                System.out.println("  Customer: " + request.getCustomerId());
-                System.out.println("  Request time: " + request.getRequestTimestamp().format(TIME_FORMATTER));
-                System.out.println("  Start time: " + actualStart.format(TIME_FORMATTER));
-                System.out.println("  Expected completion: " + request.getExpectedCompletionTime().format(TIME_FORMATTER));
+                if (ConfigLoader.isDetailedLoggingEnabled()) {
+                    logger.info("[DISPATCHED #{}] at {}", count, actualStart.format(TIME_FORMATTER));
+                    logger.debug("  Driver: {}", driver.getDriverId());
+                    logger.debug("  Customer: {}", request.getCustomerId());
+                    logger.debug("  Request time: {}", request.getRequestTimestamp().format(TIME_FORMATTER));
+                    logger.debug("  Start time: {}", actualStart.format(TIME_FORMATTER));
+                    logger.debug("  Expected completion: {}", request.getExpectedCompletionTime().format(TIME_FORMATTER));
 
-                // 计算等待时间
-                long waitSeconds = java.time.Duration.between(
-                        request.getRequestTimestamp(),
-                        actualStart
-                ).getSeconds();
-                System.out.println("  Wait time: " + waitSeconds + " seconds");
-                System.out.println();
+                    long waitSeconds = java.time.Duration.between(
+                            request.getRequestTimestamp(),
+                            actualStart
+                    ).getSeconds();
+                    logger.debug("  Wait time: {} seconds", waitSeconds);
+                }
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             }
         }
-        System.out.println("[DISPATCHER] Finished dispatching " + dispatchedCount.get() + " rides at "
-                + LocalDateTime.now().format(TIME_FORMATTER));
-        System.out.println();
+        logger.info("[DISPATCHER] Finished dispatching {} rides at {}",
+                dispatchedCount.get(), LocalDateTime.now().format(TIME_FORMATTER));
     }
 
-    // ========================
-    // Thread 3: 完成处理
-    // ========================
     private void completionLoop() {
         while (running.get() || !generatorDone.get() || !waitingQueue.isEmpty() || !activeRequests.isEmpty()) {
 
             if (generatorDone.get() && waitingQueue.isEmpty() && activeRequests.isEmpty()) {
-                System.out.println("[ENGINE] All rides completed at " + LocalDateTime.now().format(TIME_FORMATTER));
+                logger.info("[ENGINE] All rides completed at {}", LocalDateTime.now().format(TIME_FORMATTER));
                 stop();
                 break;
             }
@@ -230,7 +225,6 @@ public class SimulationEngine {
                         int count = completedCount.incrementAndGet();
                         RideRequest req = ride.getRequest();
 
-                        // 🔧 新增：计算并累积等待时间
                         long waitSeconds = java.time.Duration.between(
                                 req.getRequestTimestamp(),
                                 req.getActualStartTime()
@@ -242,7 +236,6 @@ public class SimulationEngine {
                             minWaitTimeSeconds = Math.min(minWaitTimeSeconds, waitSeconds);
                         }
 
-                        // 🔧 新增：计算并累积行程时长
                         long rideSeconds = java.time.Duration.between(
                                 req.getActualStartTime(),
                                 req.getExpectedCompletionTime()
@@ -252,15 +245,15 @@ public class SimulationEngine {
                             totalRideDurationSeconds += rideSeconds;
                         }
 
-                        // 显示详细完成信息
-                        System.out.println("[COMPLETED #" + count + "] at " + LocalDateTime.now().format(TIME_FORMATTER));
-                        System.out.println("  Driver: " + ride.getDriver().getDriverId());
-                        System.out.println("  Customer: " + req.getCustomerId());
-                        System.out.println("  Started at: " + req.getActualStartTime().format(TIME_FORMATTER));
-                        System.out.println("  Completed at: " + req.getExpectedCompletionTime().format(TIME_FORMATTER));
-                        System.out.println("  Wait time: " + waitSeconds + " seconds");
-                        System.out.println("  Ride duration: " + rideSeconds + " seconds");
-                        System.out.println();
+                        if (ConfigLoader.isDetailedLoggingEnabled()) {
+                            logger.info("[COMPLETED #{}] at {}", count, LocalDateTime.now().format(TIME_FORMATTER));
+                            logger.debug("  Driver: {}", ride.getDriver().getDriverId());
+                            logger.debug("  Customer: {}", req.getCustomerId());
+                            logger.debug("  Started at: {}", req.getActualStartTime().format(TIME_FORMATTER));
+                            logger.debug("  Completed at: {}", req.getExpectedCompletionTime().format(TIME_FORMATTER));
+                            logger.debug("  Wait time: {} seconds", waitSeconds);
+                            logger.debug("  Ride duration: {} seconds", rideSeconds);
+                        }
                     }
                 } else {
                     Thread.sleep(50);
