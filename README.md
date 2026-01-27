@@ -25,7 +25,7 @@ A multi-threaded ride-sharing dispatch system simulation built in Java, demonstr
 
 ## 🎯 Overview
 
-This project simulates a ride-sharing dispatch system that handles:
+This project simulates a ride-sharing dispatch system (similar to Uber/Lyft) that handles:
 - **Dynamic ride request generation** with realistic customer demand patterns
 - **Multi-threaded concurrent processing** for requests, dispatch, and completion
 - **Priority-based scheduling** supporting 4 ride types (Express, Standard, Wait & Save, Environmental)
@@ -67,6 +67,10 @@ Simulates 6 key Seattle locations:
 
 ## 🏗️ System Architecture
 
+### Overview
+
+The system consists of three concurrent threads that communicate through thread-safe blocking queues:
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    SimulationEngine                          │
@@ -85,6 +89,93 @@ Simulates 6 key Seattle locations:
 │  └──────────────┘    └──────────────┘    └──────────────┘  │
 │                                                               │
 └─────────────────────────────────────────────────────────────┘
+``` Rides<br/>PriorityBlockingQueue]
+        DP[Available Drivers<br/>BlockingQueue]
+    end
+    
+    Gen -->|puts| WQ
+    WQ -->|polls| Disp
+    DP -->|polls| Disp
+    Disp -->|creates| AR
+    AR -->|polls| Comp
+    Comp -->|returns| DP
+    
+    style Gen fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
+    style Disp fill:#fff3cd,stroke:#ff9900,stroke-width:2px
+    style Comp fill:#d4edda,stroke:#28a745,stroke-width:2px
+    style WQ fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+    style AR fill:#fff3cd,stroke:#ffc107,stroke-width:2px
+    style DP fill:#d1ecf1,stroke:#17a2b8,stroke-width:2px
+```
+
+### Component Interaction Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Customer
+    participant G as Generator
+    participant WQ as Waiting Queue
+    participant D as Dispatcher
+    participant DR as Driver Pool
+    participant AR as Active Rides
+    participant CO as Completion
+
+    C->>G: Request Ride
+    G->>WQ: Add Request (with priority)
+    
+    loop Every 50ms
+        D->>WQ: Poll Request
+        D->>DR: Check Available Driver
+        alt Driver Available
+            DR-->>D: Return Driver
+            D->>AR: Create Active Ride
+            D->>C: Notify Dispatched
+        else No Driver
+            D->>WQ: Re-queue Request
+            D->>C: Notify Waiting
+        end
+    end
+    
+    loop Every 50ms
+        CO->>AR: Check Completion Time
+        alt Ride Completed
+            AR-->>CO: Return Completed Ride
+            CO->>DR: Return Driver to Pool
+            CO->>C: Notify Completed
+        end
+    end
+```
+
+### Data Flow Diagram
+
+```mermaid
+flowchart LR
+    A[RideRequest<br/>Generated] --> B{Priority<br/>Queue}
+    B -->|Priority 1| C[Express]
+    B -->|Priority 2| D[Standard]
+    B -->|Priority 3| E[Wait & Save]
+    B -->|Priority 4| F[Environmental]
+    
+    C --> G[Dispatcher]
+    D --> G
+    E --> G
+    F --> G
+    
+    G --> H{Driver<br/>Available?}
+    H -->|Yes| I[Match & Dispatch]
+    H -->|No| J[Wait in Queue]
+    J --> B
+    
+    I --> K[Active Ride]
+    K --> L[Completion Check]
+    L --> M[Return Driver]
+    M --> N[Available Pool]
+    
+    style A fill:#e3f2fd
+    style B fill:#fff3e0
+    style G fill:#f3e5f5
+    style I fill:#e8f5e9
+    style K fill:#fce4ec
 ```
 
 ### Thread Architecture
@@ -133,7 +224,7 @@ Simulates 6 key Seattle locations:
 
 1. **Clone the repository**
 ```bash
-git clone git@github.khoury.northeastern.edu:ylx1187304321/rideshare-simulator.git
+git clone https://github.com/yourusername/rideshare-simulator.git
 cd rideshare-simulator
 ```
 
@@ -209,14 +300,85 @@ Uses a **composite comparator** with 3 levels:
 
 **Trade-off:** Balances customer satisfaction (priority/time) with operational efficiency (distance).
 
-### 3. **Thread Safety**
+### 3. **Dispatch Strategies Comparison**
+
+The system supports multiple dispatch strategies that can be switched via configuration:
+
+#### **Strategy 1: COMPOSITE (Priority-Based)**
+- **Algorithm:** Priority → Time → Distance
+- **Implementation:** Uses PriorityBlockingQueue with composite comparator
+- **Pros:** 
+  - Respects service tiers (Express customers get priority)
+  - Fair to customers within same tier (FIFO)
+  - Predictable behavior
+- **Cons:**
+  - May assign far-away drivers
+  - Higher fuel costs
+  - Longer pickup times
+
+**Use Case:** When customer satisfaction and service tier differentiation are critical.
+
+#### **Strategy 2: NEAREST_DRIVER**
+- **Algorithm:** Find closest available driver to pickup location
+- **Implementation:** Iterates through available drivers, calculates distances
+- **Pros:**
+  - Minimizes pickup time (driver reaches customer faster)
+  - Better fuel efficiency
+  - Lower operational costs
+  - Improved driver experience (less idle driving)
+- **Cons:**
+  - Ignores ride priority (Express customers may wait)
+  - May leave distant customers waiting
+  - Less predictable for premium tiers
+
+**Use Case:** When operational efficiency and quick response time matter most.
+
+#### **Performance Comparison**
+
+**Test Environment:**
+- 10 ride requests
+- 3 drivers
+- Random locations across Seattle
+- 2-second request interval
+
+| Metric | COMPOSITE | NEAREST_DRIVER | Winner | % Improvement |
+|--------|-----------|----------------|--------|---------------|
+| Average Wait Time | 0.30s | [Run test] | TBD | TBD |
+| Max Wait Time | 1s | [Run test] | TBD | TBD |
+| Min Wait Time | 0s | [Run test] | TBD | TBD |
+| Average Ride Duration | 4.90s | [Run test] | TBD | TBD |
+
+**Analysis:**
+- **COMPOSITE Strategy:** Achieved 0.30s average wait time with all customers served in priority order. Maximum wait was only 1 second, indicating good driver availability.
+- **NEAREST_DRIVER Strategy:** [Add your findings after testing]
+
+**Recommendation:** 
+- Use **COMPOSITE** for premium service focus
+- Use **NEAREST_DRIVER** for cost optimization
+- Future work: Hybrid strategy combining both approaches
+
+### 4. **Thread Safety**
 - `AtomicInteger` for counters (lock-free, high performance)
 - `PriorityBlockingQueue` for request/ride queues (built-in synchronization)
 - `synchronized` blocks only for statistics accumulation (low contention)
 
 **Rationale:** Minimize lock contention while ensuring correctness.
 
-### 4. **Waiting Queue Feedback**
+### 5. **Configuration-Driven Design**
+All simulation parameters are externalized to `config.properties`:
+```properties
+simulation.driver.count=3
+simulation.request.interval.ms=2000
+simulation.max.requests=10
+simulation.dispatch.strategy=COMPOSITE  # Switch strategies here
+```
+
+**Benefits:**
+- No code recompilation needed for parameter changes
+- Easy A/B testing of different strategies
+- Production-ready configuration management
+
+### 6. **Waiting Queue Feedback**
 **Challenge:** Same request was being repeatedly notified in the queue.
 
 **Solution:** Use `ConcurrentHashMap.newKeySet()` to track already-notified requests.
@@ -279,20 +441,48 @@ Average ride duration:  6.80 seconds
 - ✅ Integration tests (PriorityQueue behavior)
 - ✅ Property-based tests (symmetry, positivity constraints)
 
+---
+
+## 🔮 Future Enhancements
+
+### Planned Features (Days 3-20)
+- [ ] **Multiple Dispatch Strategies:** Implement nearest-driver, FIFO, and load-balancing algorithms
+- [ ] **Algorithm Comparison:** A/B testing framework with CSV reports
+- [ ] **Data Visualization:** Charts for wait time distribution, driver utilization
+- [ ] **Performance Testing:** Stress test with 1000+ concurrent requests
+- [ ] **Configuration Files:** YAML/properties-based config (no hardcoding)
+- [ ] **Logging Framework:** Replace System.out with Log4j2
+- [ ] **Monitoring Dashboard:** Simple web UI for real-time metrics
+
+### Stretch Goals
+- [ ] Dynamic pricing (surge pricing during high demand)
+- [ ] Ride pooling/carpool support
+- [ ] Driver rating system
+- [ ] Geospatial optimization (replace distance with actual routes)
+
+---
+
+## 📄 License
+
+This project is created for educational purposes as part of a graduate-level software engineering portfolio.
+
+---
 
 ## 👤 Author
 
-**Lexin Yi**
-- LinkedIn: www.linkedin.com/in/lexinyi
-- Email: yi.l@northeastern.edu
+**Your Name**
+- GitHub: [@yourusername](https://github.com/yourusername)
+- LinkedIn: [Your Name](https://linkedin.com/in/yourprofile)
+- Email: your.email@example.com
+
 ---
 
 ## 🙏 Acknowledgments
 
-- Inspired by real-world ride-sharing platforms
+- Inspired by real-world ride-sharing platforms (Uber, Lyft, Didi)
 - Built as a demonstration project for MSCS internship applications
 - Special thanks to the Java concurrency community for best practices
+
 ---
 
 **⭐ If you find this project helpful, please star it on GitHub!**
-
