@@ -470,10 +470,10 @@ This project is created for educational purposes as part of a graduate-level sof
 
 ## 👤 Author
 
-**Your Name**
-- GitHub: [@yourusername](https://github.com/yourusername)
-- LinkedIn: [Your Name](https://linkedin.com/in/yourprofile)
-- Email: your.email@example.com
+**Lexin Yi**
+- GitHub: https://github.khoury.northeastern.edu/ylx1187304321/rideshare-simulator.git
+- LinkedIn: www.linkedin.com/in/lexinyi
+- Email: yi.l@northeastern.edu
 
 ---
 

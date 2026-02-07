@@ -50,7 +50,6 @@ public class SimulationEngine {
 
         this.availableDrivers = new LinkedBlockingQueue<>();
 
-        // 🔧 Day 2: 初始化司机，随机分配起始位置
         for (int i = 0; i < config.driverCount; i++) {
             String driverName = Name.randomName();
             String startLocation = CityMap.getAllLocations().get(
@@ -142,7 +141,7 @@ public class SimulationEngine {
                 createdCount.get(), LocalDateTime.now().format(TIME_FORMATTER));
     }
 
-    // 🔧 Day 2: 修改派单逻辑，支持策略切换
+    // 🔧 Day 3: 支持三种派单策略
     private void dispatchLoop() {
         String strategy = ConfigLoader.getDispatchStrategy();
         logger.info("[DISPATCHER] Using strategy: {}", strategy);
@@ -157,15 +156,16 @@ public class SimulationEngine {
 
                 Driver driver;
 
-                // 🔧 根据配置选择派单策略
+                // 🔧 三种策略选择
                 if ("NEAREST_DRIVER".equals(strategy)) {
-                    // 最近距离策略
                     driver = NearestDriverStrategy.findNearestDriver(
                             availableDrivers,
                             request.getStartLocation()
                     );
+                } else if ("LOAD_BALANCING".equals(strategy)) {
+                    driver = LoadBalancingStrategy.findLeastLoadedDriver(availableDrivers);
                 } else {
-                    // 默认：优先级队列策略（FIFO from queue）
+                    // 默认：COMPOSITE（优先级队列）
                     driver = availableDrivers.poll();
                 }
 
@@ -191,7 +191,7 @@ public class SimulationEngine {
                 LocalDateTime actualStart = LocalDateTime.now();
                 request.setActualStartTime(actualStart);
 
-                // 🔧 计算行程时间（包含接客时间）
+                // 🔧 计算行程时间（NEAREST_DRIVER 包含接客时间）
                 long pickupTime = 0;
                 if ("NEAREST_DRIVER".equals(strategy)) {
                     pickupTime = NearestDriverStrategy.calculatePickupTimeSeconds(
@@ -205,7 +205,6 @@ public class SimulationEngine {
 
                 request.setExpectedCompletionTime(actualStart.plusSeconds(totalTime));
 
-                // 🔧 司机接单
                 driver.assignRide(request);
 
                 ActiveRide ride = new ActiveRide(request, driver);
@@ -215,17 +214,17 @@ public class SimulationEngine {
 
                 if (ConfigLoader.isDetailedLoggingEnabled()) {
                     logger.info("[DISPATCHED #{}] at {}", count, actualStart.format(TIME_FORMATTER));
-                    logger.debug("  Driver: {} (was at {})", driver.getDriverId(), driver.getCurrentLocation());
+                    logger.debug("  Driver: {}", driver.getDriverId());
                     logger.debug("  Customer: {}", request.getCustomerId());
-                    logger.debug("  Pickup location: {}", request.getStartLocation());
 
                     if ("NEAREST_DRIVER".equals(strategy) && pickupTime > 0) {
                         logger.debug("  Pickup time: {} seconds", pickupTime);
                     }
 
-                    logger.debug("  Request time: {}", request.getRequestTimestamp().format(TIME_FORMATTER));
-                    logger.debug("  Start time: {}", actualStart.format(TIME_FORMATTER));
-                    logger.debug("  Expected completion: {}", request.getExpectedCompletionTime().format(TIME_FORMATTER));
+                    if ("LOAD_BALANCING".equals(strategy)) {
+                        logger.debug("  Driver ride count: {}",
+                                LoadBalancingStrategy.getRideCount(driver.getDriverId()));
+                    }
 
                     long waitSeconds = java.time.Duration.between(
                             request.getRequestTimestamp(),
@@ -243,8 +242,9 @@ public class SimulationEngine {
                 dispatchedCount.get(), LocalDateTime.now().format(TIME_FORMATTER));
     }
 
-    // 🔧 Day 2: 修复 completionLoop，更新司机位置
     private void completionLoop() {
+        String strategy = ConfigLoader.getDispatchStrategy();
+
         while (running.get() || !generatorDone.get() || !waitingQueue.isEmpty() || !activeRequests.isEmpty()) {
 
             if (generatorDone.get() && waitingQueue.isEmpty() && activeRequests.isEmpty()) {
@@ -263,11 +263,16 @@ public class SimulationEngine {
                 if (!next.getRequest().getExpectedCompletionTime().isAfter(LocalDateTime.now())) {
                     ActiveRide ride = activeRequests.poll();
                     if (ride != null) {
-                        RideRequest req = ride.getRequest();  // 🔧 修复：先获取 request
+                        RideRequest req = ride.getRequest();
                         Driver driver = ride.getDriver();
 
-                        // 🔧 完成订单后，司机在目的地
                         driver.finishRide(req.getDestination());
+
+                        // 🔧 Day 3: 记录负载均衡统计
+                        if ("LOAD_BALANCING".equals(strategy)) {
+                            LoadBalancingStrategy.recordRideCompletion(driver.getDriverId());
+                        }
+
                         availableDrivers.put(driver);
 
                         int count = completedCount.incrementAndGet();
@@ -294,12 +299,15 @@ public class SimulationEngine {
 
                         if (ConfigLoader.isDetailedLoggingEnabled()) {
                             logger.info("[COMPLETED #{}] at {}", count, LocalDateTime.now().format(TIME_FORMATTER));
-                            logger.debug("  Driver: {} (now at {})", driver.getDriverId(), driver.getCurrentLocation());
+                            logger.debug("  Driver: {}", driver.getDriverId());
                             logger.debug("  Customer: {}", req.getCustomerId());
-                            logger.debug("  Started at: {}", req.getActualStartTime().format(TIME_FORMATTER));
-                            logger.debug("  Completed at: {}", req.getExpectedCompletionTime().format(TIME_FORMATTER));
                             logger.debug("  Wait time: {} seconds", waitSeconds);
                             logger.debug("  Ride duration: {} seconds", rideSeconds);
+
+                            if ("LOAD_BALANCING".equals(strategy)) {
+                                logger.debug("  Total rides by this driver: {}",
+                                        LoadBalancingStrategy.getRideCount(driver.getDriverId()));
+                            }
                         }
                     }
                 } else {

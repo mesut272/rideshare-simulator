@@ -2,7 +2,10 @@ package finalProject;
 
 /**
  * Represents a driver in the ride-sharing system.
- * Each driver has a location and availability status.
+ * Each driver has:
+ *     unique identifier
+ *     availability status
+ *     current location(updated after each ride)
  */
 public class Driver {
     private String driverId;
