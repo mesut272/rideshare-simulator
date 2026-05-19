@@ -164,8 +164,6 @@ public class SimulatedRedissonLock {
         watchdogScheduler.shutdownNow();
     }
 
-    // ─── 状态查询（供调试使用）───────────────────────────────────────────────
-
     public synchronized boolean isLocked() {
         return holderId != null && System.currentTimeMillis() < expireAt;
     }

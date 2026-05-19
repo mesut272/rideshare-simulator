@@ -48,7 +48,6 @@ public class ManualComparison {
         System.out.println("-".repeat(70));
         System.out.println("COMPOSITE          | 0.30s    | 1s       | 0s       | 4.90s");
         System.out.println("NEAREST_DRIVER     | 2.70s    | 12s      | 0s       | 8.70s");
-        System.out.println("LOAD_BALANCING     | [RUN TEST]");
         System.out.println("-".repeat(70));
         System.out.println();
 

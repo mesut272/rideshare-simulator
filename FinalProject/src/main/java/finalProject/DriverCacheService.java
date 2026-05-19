@@ -39,10 +39,10 @@ public class DriverCacheService {
     private static final Logger logger = LoggerFactory.getLogger(DriverCacheService.class);
 
     // ─── 模拟 Redis 存储（ConcurrentHashMap = 内存 KV 存储）───────────────────
-    private final ConcurrentHashMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
 
     // ─── 模拟 DB（实际项目中是 MySQL / JPA Repository）─────────────────────────
-    private final ConcurrentHashMap<String, Driver> database = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Driver> database = new ConcurrentHashMap<>();
 
     // 缓存 TTL：基础值 + 随机抖动，防雪崩
     private static final long BASE_TTL_MS = 10_000L;
@@ -193,6 +193,21 @@ public class DriverCacheService {
     public void shutdown() {
         delayedDeleteScheduler.shutdownNow();
         locks.values().forEach(SimulatedRedissonLock::shutdown);
+    }
+
+    /**
+     * 获取当前系统中所有的司机对象（直接从 DB 读取）。
+     * 用于 AI 全局情况查询，绕过缓存，确保获取的是最全的数据列表。
+     */
+    public java.util.Collection<Driver> getAllDrivers() {
+        return database.values();
+    }
+
+    /**
+     * 获取当前系统中所有司机的 ID 列表。
+     */
+    public java.util.Set<String> getAllDriverIds() {
+        return database.keySet();
     }
 
     // ─── 内部类：缓存条目（含 TTL）────────────────────────────────────────────

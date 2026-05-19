@@ -1,8 +1,21 @@
 package finalProject;
 
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.service.AiServices;
+
+import java.time.Duration;
+import java.util.Scanner;
+import java.util.concurrent.CompletableFuture;
+
 public class RideSharingApp {
 
+    // 在 RideSharingApp 类定义中加入
+    public static final java.util.Set<String> WATCH_LIST = new java.util.concurrent.ConcurrentSkipListSet<>();
     public static void main(String[] args) throws InterruptedException {
+        ch.qos.logback.classic.Logger root = (ch.qos.logback.classic.Logger)
+                org.slf4j.LoggerFactory.getLogger("finalProject");
+        root.setLevel(ch.qos.logback.classic.Level.ERROR);
 
         // 打印配置信息
         ConfigLoader.printConfig();
@@ -17,15 +30,38 @@ public class RideSharingApp {
         SimulationEngine engine = new SimulationEngine(config);
         engine.start();
 
-        // 计算等待时间：生成时间 + 额外缓冲时间
-        long generateTime = config.maxRequests * config.requestIntervalMs;
-        long bufferTime = 60000L; // 60秒缓冲，让所有订单有时间完成
-        long waitTime = generateTime + bufferTime;
+        new Thread(() -> {
+            try {
+                OpenAiChatModel model = OpenAiChatModel.builder()
+                        .apiKey("REDACTED_API_KEY")
+                        .baseUrl("https://api.deepseek.com")
+                        .modelName("deepseek-chat")
+                        .timeout(Duration.ofSeconds(60)) // 增加超时时间处理网络波动
+                        .logRequests(false)
+                        .logResponses(false)
+                        .build();
 
-        System.out.println("[MAIN] Will wait up to " + (waitTime / 1000) + " seconds for completion...");
-        Thread.sleep(waitTime);
+                TaxiAgentInterface agent = AiServices.builder(TaxiAgentInterface.class)
+                        .chatLanguageModel(model)
+                        .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
+                        .tools(new TaxiAgentAdapter(engine.getDriverCache(), engine.getOrderIndex()))
+                        .build();
 
-        // 如果还在运行，手动停止（实际上系统应该已经自动停止了）
-        engine.stop();
+                Scanner scanner = new Scanner(System.in);
+                System.out.println("本次模拟司机名单: " + engine.getDriverCache().getAllDriverIds());
+                System.out.println("\n[SYSTEM] 系统正在运行中，AI 助手已就绪。");
+
+                while (true) {
+                    System.out.print("\nAI 指令 > ");
+                    String input = scanner.nextLine();
+                    // 使用异步方式调用，保证 AI 思考时，控制台依然能打印 Engine 的派单日志
+                    CompletableFuture.supplyAsync(() -> agent.chat(input))
+                            .thenAccept(res -> System.out.println("\n[AI]: " + res));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
+
 }

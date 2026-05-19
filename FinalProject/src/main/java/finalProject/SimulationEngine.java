@@ -8,6 +8,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The core engine that drives the ride-sharing simulation.
@@ -165,7 +166,6 @@ public class SimulationEngine {
 
     private void dispatchLoop() {
         String strategy = ConfigLoader.getDispatchStrategy();
-
         while (running.get() || !waitingQueue.isEmpty()) {
             try {
                 // Check if we are done
@@ -203,11 +203,11 @@ public class SimulationEngine {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
-                // Critical: Catch generic exceptions so the thread doesn't die silently
                 logger.error("[DISPATCHER] Critical error processing request", e);
             }
         }
         logger.info("[DISPATCHER] Finished. Dispatched total: {}", dispatchedCount.get());
+
     }
 
     private void completionLoop() {
@@ -297,6 +297,13 @@ public class SimulationEngine {
                     waitingQueue.offer(request);
                     return;
                 }
+            }
+
+            // 检查该司机是否在你的“监控名单”中
+            if (RideSharingApp.WATCH_LIST.contains(driver.getDriverId())) {
+                // 使用 System.err 可以在控制台打印出显眼的红色字体
+                System.err.println("\n[WATCHDOG] ⚡ 实时预警：司机 " + driver.getDriverId() + " 刚刚接单了！");
+                System.err.print("AI 指令 > "); // 重新打印输入提示符，防止被日志冲掉
             }
 
             LocalDateTime actualStart = LocalDateTime.now();
@@ -442,4 +449,16 @@ public class SimulationEngine {
     public int getCompletedCount() {
         return completedCount.get();
     }
+
+    // 这样外部才能通过 engine.getCacheService() 拿到数据
+    // 允许 AI 线程访问引擎内部的缓存服务
+    public DriverCacheService getDriverCache() {
+        return this.driverCacheService;
+    }
+
+    // 允许 AI 线程访问引擎内部的索引服务
+    public OrderIndexService getOrderIndex() {
+        return this.orderIndexService;
+    }
+
 }
