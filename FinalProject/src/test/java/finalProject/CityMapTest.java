@@ -17,6 +17,12 @@ class CityMapTest {
     }
 
     @Test
+    void testGetDistance_SameLocationShouldBeZero() {
+        assertEquals(0.0, CityMap.getDistance("UW", "UW"));
+        assertEquals(0.0, CityMap.getDistance("Airport", "Airport"));
+    }
+
+    @Test
     void testGetDistance_Symmetry() {
         // 测试距离的对称性：A到B的距离应该等于B到A的距离
         assertEquals(

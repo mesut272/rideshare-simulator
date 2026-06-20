@@ -24,6 +24,8 @@ import java.util.concurrent.TimeUnit;
  * - OrderIndexService：B+ 树复合索引 + EXPLAIN 分析
  */
 public class SimulationEngine {
+    private static final double DISTANCE_UNITS_PER_SECOND = 20.0;
+
 
     private static final Logger logger = LoggerFactory.getLogger(SimulationEngine.class);
     private static final Logger metricsLogger = LoggerFactory.getLogger("metrics");
@@ -39,6 +41,7 @@ public class SimulationEngine {
     // Atomic flags and counters for thread safety
     private final AtomicBoolean generatorDone = new AtomicBoolean(false);
     private final AtomicBoolean running = new AtomicBoolean(true);
+    private final AtomicBoolean summaryPrinted = new AtomicBoolean(false);
     private final AtomicInteger createdCount = new AtomicInteger(0);
     private final AtomicInteger dispatchedCount = new AtomicInteger(0);
     private final AtomicInteger completedCount = new AtomicInteger(0);
@@ -116,9 +119,7 @@ public class SimulationEngine {
      * Ensures all threads are shut down properly and prints final stats.
      */
     public void stop() {
-        if (!running.compareAndSet(true, false)) {
-            return; // Already stopped
-        }
+        running.set(false);
 
         logger.info("Stopping simulation engine...");
 
@@ -134,7 +135,27 @@ public class SimulationEngine {
             Thread.currentThread().interrupt();
         }
 
-        printSummary();
+        printSummaryOnce();
+    }
+
+    /**
+     * Waits for the submitted simulation loops to finish and prints the summary once.
+     *
+     * @return true if all simulation threads stopped before the timeout
+     */
+    public boolean awaitCompletion(long timeout, TimeUnit unit) throws InterruptedException {
+        executor.shutdown();
+        boolean completed = executor.awaitTermination(timeout, unit);
+        if (!completed) {
+            running.set(false);
+            executor.shutdownNow();
+        }
+        printSummaryOnce();
+        return completed;
+    }
+
+    public void awaitCompletion() throws InterruptedException {
+        awaitCompletion(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
     }
 
     // --- Core Loops ---
@@ -217,8 +238,7 @@ public class SimulationEngine {
             try {
                 // Auto-stop condition: generator done, waiting empty, active empty
                 if (generatorDone.get() && waitingQueue.isEmpty() && activeRequests.isEmpty()) {
-                    // We don't call stop() here to avoid race conditions, we just break.
-                    // Main app should call stop().
+                    running.set(false);
                     break;
                 }
 
@@ -316,7 +336,7 @@ public class SimulationEngine {
                         driver.getCurrentLocation(), request.getStartLocation());
             }
 
-            long rideDuration = Math.round(request.getAnticipatedDistance() / 60.0);
+            long rideDuration = calculateTravelTimeSeconds(request.getAnticipatedDistance());
             long totalTime = pickupTime + rideDuration;
 
             request.setExpectedCompletionTime(actualStart.plusSeconds(totalTime));
@@ -394,6 +414,101 @@ public class SimulationEngine {
                 req.getActualStartTime(), req.getExpectedCompletionTime()).getSeconds();
 
         totalRideDurationSeconds += rideSeconds;
+    }
+
+    public void submitManualOrder(RideRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("request must not be null");
+        }
+        waitingQueue.put(request);
+        createdCount.incrementAndGet();
+        orderIndexService.insertOrder(request, "PENDING");
+        logger.info("[MANUAL] Submitted request from {} to {} for customer {}",
+                request.getStartLocation(), request.getDestination(), request.getCustomerId());
+    }
+
+    public int getWaitingQueueSize() {
+        return waitingQueue.size();
+    }
+
+    public SimulationMapSnapshot getMapSnapshot(boolean started) {
+        java.util.Map<String, Integer> queueByLocation = new java.util.HashMap<>();
+        for (String location : CityMap.getAllLocations()) {
+            queueByLocation.put(location, 0);
+        }
+        for (RideRequest request : waitingQueue) {
+            queueByLocation.merge(request.getStartLocation(), 1, Integer::sum);
+        }
+
+        java.util.List<SimulationMapSnapshot.ActiveTripSnapshot> trips = new java.util.ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+        for (ActiveRide activeRide : activeRequests) {
+            RideRequest request = activeRide.getRequest();
+            LocalDateTime actualStart = request.getActualStartTime();
+            LocalDateTime expectedCompletion = request.getExpectedCompletionTime();
+
+            double progress = 0.0;
+            long remainingSeconds = 0L;
+            if (actualStart != null && expectedCompletion != null) {
+                long totalMillis = java.time.Duration.between(actualStart, expectedCompletion).toMillis();
+                long elapsedMillis = java.time.Duration.between(actualStart, now).toMillis();
+                if (totalMillis > 0) {
+                    progress = Math.max(0.0, Math.min(100.0, elapsedMillis * 100.0 / totalMillis));
+                } else {
+                    progress = 100.0;
+                }
+                remainingSeconds = Math.max(0L, java.time.Duration.between(now, expectedCompletion).getSeconds());
+            }
+
+            trips.add(new SimulationMapSnapshot.ActiveTripSnapshot(
+                    activeRide.getDriver().getDriverId(),
+                    request.getCustomerId(),
+                    request.getStartLocation(),
+                    request.getDestination(),
+                    request.getRideType().name(),
+                    request.getAnticipatedDistance(),
+                    progress,
+                    remainingSeconds
+            ));
+        }
+
+        trips.sort(java.util.Comparator.comparingLong(SimulationMapSnapshot.ActiveTripSnapshot::getRemainingSeconds));
+        return new SimulationMapSnapshot(started, started && isRunning(), waitingQueue.size(),
+                completedCount.get(), queueByLocation, trips);
+    }
+
+    public QueueSnapshot getQueueSnapshot(String location) {
+        java.util.List<QueueSnapshot.PassengerSnapshot> passengers = new java.util.ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+        for (RideRequest request : waitingQueue) {
+            if (!request.getStartLocation().equals(location)) {
+                continue;
+            }
+            passengers.add(new QueueSnapshot.PassengerSnapshot(
+                    request.getCustomerId(),
+                    request.getStartLocation(),
+                    request.getDestination(),
+                    request.getRideType().name(),
+                    request.getAnticipatedDistance(),
+                    Math.max(0L, java.time.Duration.between(request.getRequestTimestamp(), now).getSeconds())
+            ));
+        }
+        passengers.sort(java.util.Comparator.comparingLong(QueueSnapshot.PassengerSnapshot::getWaitingSeconds).reversed());
+        return new QueueSnapshot(location, passengers);
+    }
+
+    public boolean isRunning() {
+        return running.get();
+    }
+
+    public static long calculateTravelTimeSeconds(double distance) {
+        return Math.max(1L, Math.round(distance / DISTANCE_UNITS_PER_SECOND));
+    }
+
+    private void printSummaryOnce() {
+        if (summaryPrinted.compareAndSet(false, true)) {
+            printSummary();
+        }
     }
 
     private void printSummary() {

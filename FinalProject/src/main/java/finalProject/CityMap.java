@@ -61,7 +61,17 @@ public class CityMap {
 
     // return the distance between two given locations
     public static double getDistance(String from, String to) {
-        return distances.get(from).get(to);
+        if (from == null || to == null) {
+            throw new IllegalArgumentException("Locations must not be null");
+        }
+        if (from.equals(to)) {
+            return 0.0;
+        }
+        Map<String, Double> routes = distances.get(from);
+        if (routes == null || !routes.containsKey(to)) {
+            throw new IllegalArgumentException("Unknown route: " + from + " -> " + to);
+        }
+        return routes.get(to);
     }
 
     // return a list containing all locations exist in the CityMap

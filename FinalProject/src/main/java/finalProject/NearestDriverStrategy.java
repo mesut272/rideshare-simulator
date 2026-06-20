@@ -81,6 +81,6 @@ public class NearestDriverStrategy {
      */
     public static long calculatePickupTimeSeconds(String from, String to) {
         double distance = CityMap.getDistance(from, to);
-        return Math.round(distance / 60.0);
+        return SimulationEngine.calculateTravelTimeSeconds(distance);
     }
 }

@@ -1,0 +1,18 @@
+# Build output
+target/
+build/
+.gradle/
+*.class
+
+# Local runtime state
+logs/
+.superpowers/
+
+# Local secrets
+.env
+*.env
+*.key
+*.secret
+
+# OS files
+.DS_Store

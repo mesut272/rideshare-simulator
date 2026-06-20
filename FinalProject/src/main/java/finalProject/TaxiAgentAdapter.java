@@ -2,16 +2,23 @@ package finalProject;
 
 import dev.langchain4j.agent.tool.Tool;
 import java.time.LocalDateTime;
-import java.util.Collection;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public class TaxiAgentAdapter {
     private final DriverCacheService driverCache;
     private final OrderIndexService orderIndex;
+    private final Consumer<RideRequest> manualOrderSubmitter;
 
     public TaxiAgentAdapter(DriverCacheService driverCache, OrderIndexService orderIndex) {
+        this(driverCache, orderIndex, null);
+    }
+
+    public TaxiAgentAdapter(DriverCacheService driverCache, OrderIndexService orderIndex,
+                            Consumer<RideRequest> manualOrderSubmitter) {
         this.driverCache = driverCache;
         this.orderIndex = orderIndex;
+        this.manualOrderSubmitter = manualOrderSubmitter;
     }
 
     @Tool("查询指定司机的实时位置和可用性。参数为司机ID，例如 Driver-1")
@@ -62,16 +69,29 @@ public class TaxiAgentAdapter {
     public String manualOrder(String start, String dest, double dist, String type) {
         try {
             RideType rideType = RideType.valueOf(type.toUpperCase());
+            if (dist < 0) {
+                return "距离不能为负数。";
+            }
+            if (!CityMap.getAllLocations().contains(start) || !CityMap.getAllLocations().contains(dest)) {
+                return "地点输入错误，请使用系统地图中的地点：" + CityMap.getAllLocations();
+            }
+            if (start.equals(dest)) {
+                return "起点和终点不能相同。";
+            }
+
             String customerId = "AI-USER-" + UUID.randomUUID().toString().substring(0, 4);
 
             RideRequest req = new RideRequest(customerId, start, dest, dist, LocalDateTime.now(), rideType);
 
-            // 调用你的 B+ 树索引插入服务
-            orderIndex.insertOrder(req, "PENDING");
-
-            return "【AI 调度成功】紧急订单已成功录入 B+ 树索引池，起点为：" + start;
+            if (manualOrderSubmitter != null) {
+                manualOrderSubmitter.accept(req);
+                return "【AI 调度成功】紧急订单已进入派单队列，起点为：" + start;
+            } else {
+                orderIndex.insertOrder(req, "PENDING");
+                return "【AI 录入成功】紧急订单已写入索引演示池，起点为：" + start;
+            }
         } catch (IllegalArgumentException e) {
-            return "车型类型输入错误，请指定为 STANDARD_PICKUP 或 EXPRESS_PICKUP。";
+            return "车型类型输入错误，请指定为 STANDARD_PICKUP、EXPRESS_PICKUP、WAIT_AND_SAVE_PICKUP 或 ENVIR_PICKUP。";
         }
     }
 }

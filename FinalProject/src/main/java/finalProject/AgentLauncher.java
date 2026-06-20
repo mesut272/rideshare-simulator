@@ -25,7 +25,7 @@ public class AgentLauncher {
 
         // 2. 配置 AI (关键：我在这里直接关掉了库自带的打印代码)
         OpenAiChatModel model = OpenAiChatModel.builder()
-                .apiKey("REDACTED_API_KEY")
+                .apiKey(SecretConfig.deepSeekApiKey())
                 .baseUrl("https://api.deepseek.com")
                 .modelName("deepseek-chat")
                 .timeout(Duration.ofSeconds(60)) // 增加超时时间处理网络波动

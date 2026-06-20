@@ -234,6 +234,23 @@ flowchart LR
 
 ## 🚀 Getting Started
 
+### API Key Setup
+
+The supervisor AI path uses DeepSeek through the OpenAI-compatible LangChain4j client.
+Do not commit real API keys to Git. Set the key locally before running the app:
+
+```bash
+export DEEPSEEK_API_KEY="your-deepseek-api-key"
+cd FinalProject
+./gradlew run
+```
+
+For IDE runs, set `DEEPSEEK_API_KEY` in the run configuration. For one-off CLI runs,
+you can also pass `-Ddeepseek.api.key=...` to the Java process. If you store the key
+in an encrypted password manager or keychain, decrypt it locally and expose it as
+`DEEPSEEK_API_KEY` at runtime; do not store encrypted secret blobs or decryption
+passwords in the repository.
+
 ### Prerequisites
 - Java 17 or higher
 - Gradle 8.0 or higher (or use included Gradle wrapper)
@@ -538,4 +555,3 @@ This project is created for educational purposes as part of a graduate-level sof
 - Inspired by real-world ride-sharing platforms (Uber, Lyft, Didi)
 - Built as a demonstration project for MSCS internship applications
 - Special thanks to the Java concurrency community for best practices
-

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>监管 Agent 控制台</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main class="shell">
+    <header class="topbar">
+        <div>
+            <p class="eyebrow">Ride-sharing Dispatch Simulator</p>
+            <h1>监管 Agent 控制台</h1>
+        </div>
+        <div class="status-pill" id="connectionStatus">
+            <span class="status-dot"></span>
+            本地 API 已连接
+        </div>
+    </header>
+
+    <section class="map-dashboard" aria-label="实时派单地图">
+        <div class="map-stage">
+            <div class="map-header">
+                <div>
+                    <p class="section-label">Live Dispatch Map</p>
+                    <h2>Seattle Ride Network</h2>
+                </div>
+                <div class="map-toggles">
+                    <button class="map-toggle active" id="toggleQueuesButton" type="button">排队热度</button>
+                    <button class="map-toggle active" id="toggleRoutesButton" type="button">路线高亮</button>
+                </div>
+            </div>
+            <div class="city-map" id="cityMap">
+                <svg class="route-layer" viewBox="0 0 720 420" aria-hidden="true">
+                    <g id="baseRoutes"></g>
+                    <g id="activeRoutes"></g>
+                </svg>
+                <div class="map-empty" id="mapEmptyState">启动派单模拟后，地图会显示司机路线和地点排队热度。</div>
+                <div id="locationLayer"></div>
+                <div id="tripMarkerLayer"></div>
+            </div>
+            <section class="map-order-panel">
+                <div class="panel-heading">
+                    <div>
+                        <p class="section-label">Manual Order</p>
+                        <h2>新增乘客订单</h2>
+                    </div>
+                </div>
+                <form class="manual-order-form" id="manualOrderForm">
+                    <label>
+                        <span>乘客名字</span>
+                        <input id="passengerNameInput" name="customerId" type="text" maxlength="40" placeholder="例如 Alice" autocomplete="off" required>
+                    </label>
+                    <div class="order-location-grid">
+                        <label>
+                            <span>出发地</span>
+                            <select id="orderStartSelect" name="startLocation" required></select>
+                        </label>
+                        <label>
+                            <span>目的地</span>
+                            <select id="orderDestinationSelect" name="destination" required></select>
+                        </label>
+                    </div>
+                    <label>
+                        <span>订单类型</span>
+                        <select id="orderRideTypeSelect" name="rideType">
+                            <option value="STANDARD_PICKUP">标准接驾</option>
+                            <option value="EXPRESS_PICKUP">加急接驾</option>
+                            <option value="WAIT_AND_SAVE_PICKUP">等待优惠</option>
+                            <option value="ENVIR_PICKUP">环保出行</option>
+                        </select>
+                    </label>
+                    <button class="order-submit-button" id="submitOrderButton" type="submit">下单并加入队列</button>
+                    <p class="form-status" id="orderFormStatus" aria-live="polite"></p>
+                </form>
+            </section>
+        </div>
+
+        <aside class="map-insights">
+            <section>
+                <div class="panel-heading">
+                    <div>
+                        <p class="section-label">Active Trips</p>
+                        <h2>路上司机</h2>
+                    </div>
+                    <strong id="activeTripCount">0</strong>
+                </div>
+                <div class="active-trip-list" id="activeTripList">
+                    <p class="empty-state">暂无路上订单。</p>
+                </div>
+            </section>
+            <section>
+                <div class="panel-heading">
+                    <div>
+                        <p class="section-label">Queue Heat</p>
+                        <h2>地点排队</h2>
+                    </div>
+                </div>
+                <div class="queue-list" id="queueList">
+                    <p class="empty-state">暂无排队请求。</p>
+                </div>
+            </section>
+            <section>
+                <div class="panel-heading">
+                    <div>
+                        <p class="section-label">Location Detail</p>
+                        <h2 id="selectedLocationTitle">地点详情</h2>
+                    </div>
+                    <span class="detail-count" id="selectedLocationCount">--</span>
+                </div>
+                <div class="location-detail-list" id="locationQueueDetail">
+                    <p class="empty-state">点击地图上的地点，查看正在排队的乘客。</p>
+                </div>
+            </section>
+        </aside>
+    </section>
+
+    <section class="workspace">
+        <section class="chat-panel" aria-label="监管 Agent 对话">
+            <div class="chat-toolbar">
+                <div>
+                    <p class="section-label">AI 调度链路</p>
+                    <h2>实时对话</h2>
+                </div>
+                <button class="ghost-button" id="clearChatButton" type="button">清空</button>
+            </div>
+
+            <div class="messages" id="messages" aria-live="polite">
+                <article class="message assistant">
+                    <div class="avatar">AI</div>
+                    <div class="bubble">
+                        <div class="message-meta">
+                            <span>监管 Agent</span>
+                            <time>刚刚</time>
+                        </div>
+                        <p>调度控制台已就绪。你可以查询调度概况、监控指定司机，或录入紧急订单。</p>
+                    </div>
+                </article>
+            </div>
+
+            <form class="composer" id="chatForm">
+                <textarea id="messageInput" rows="2" placeholder="输入监管指令，例如：查看当前调度概况" aria-label="监管指令"></textarea>
+                <button class="send-button" id="sendButton" type="submit">发送</button>
+            </form>
+        </section>
+
+        <aside class="side-panel" aria-label="系统状态">
+            <section class="simulation-panel">
+                <div class="panel-heading">
+                    <div>
+                        <p class="section-label">Simulation Control</p>
+                        <h2>后端派单模拟</h2>
+                    </div>
+                    <span class="run-state" id="simulationState">未启动</span>
+                </div>
+                <button class="start-simulation-button" id="startSimulationButton" type="button">启动派单模拟</button>
+                <div class="simulation-stats">
+                    <div>
+                        <span>等待队列</span>
+                        <strong id="waitingQueueSize">--</strong>
+                    </div>
+                    <div>
+                        <span>已完成</span>
+                        <strong id="completedCount">--</strong>
+                    </div>
+                </div>
+            </section>
+
+            <section class="metric-grid">
+                <div class="metric-card">
+                    <span>在线司机</span>
+                    <strong id="totalDrivers">--</strong>
+                </div>
+                <div class="metric-card">
+                    <span>可接单</span>
+                    <strong id="availableDrivers">--</strong>
+                </div>
+            </section>
+
+            <section class="quick-panel">
+                <div class="panel-heading">
+                    <p class="section-label">快捷监管</p>
+                    <h2>常用指令</h2>
+                </div>
+                <div class="quick-actions">
+                    <button type="button" data-prompt="查看当前调度概况">调度概况</button>
+                    <button type="button" data-prompt="现在有哪些司机空闲可接单？">查询空闲司机</button>
+                    <button type="button" data-prompt="查看所有司机名单，并建议我应该监控哪位司机">监控司机</button>
+                    <button type="button" data-prompt="帮我录入一个紧急订单，起点 UW，终点 Bellevue，距离 8.5，车型 EXPRESS_PICKUP">紧急订单示例</button>
+                </div>
+            </section>
+
+        </aside>
+    </section>
+</main>
+<script src="/mapGeometry.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
